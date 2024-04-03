@@ -1,35 +1,16 @@
-from fastapi import FastAPI
+import os
 import uvicorn
 import motor.motor_asyncio
-from fastapi import APIRouter, Body, Request, HTTPException, status, FastAPI, requests
-from fastapi.responses import JSONResponse
-from fastapi.encoders import jsonable_encoder
-from typing import List
-from pydantic import BaseModel, Field
-from bson import ObjectId
-from datetime import datetime
-
+from fastapi import FastAPI
+from dotenv import load_dotenv
 from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
+import rotas
 
-uri = "mongodb+srv://victor:12345678.@cluster-fatec.dtor8xx.mongodb.net/?retryWrites=true&w=majority"
+load_dotenv()
 
-# Create a new client and connect to the server
-client = MongoClient(uri, server_api=ServerApi('1'))
-
-# Send a ping to confirm a successful connection
-try:
-    client.admin.command('ping')
-    print("Pinged your deployment. You successfully connected to MongoDB!")
-except Exception as e:
-    print(e)
-
-db = client["db_acelerometro"]
-collection = db["acelerometro"]
-uri = "mongodb+srv://victor:12345678.@cluster-fatec.dtor8xx.mongodb.net/?retryWrites=true&w=majority"
+uri = os.getenv('MONGO_URI')
 app = FastAPI()
-
-
 
 async def open_db() -> motor.motor_asyncio.AsyncIOMotorClient:
      app.state.mongodb = motor.motor_asyncio.AsyncIOMotorClient(uri)
@@ -37,76 +18,9 @@ async def open_db() -> motor.motor_asyncio.AsyncIOMotorClient:
 async def close_db():
     app.state.mongodb.close()
 
-
-
+app.include_router(rotas.router)
 app.add_event_handler('startup', open_db)
 app.add_event_handler('shutdown', close_db)
-
-class AcelerometroModel(BaseModel):
-    id: str = Field(default_factory=lambda: str(ObjectId()), alias="_id")
-    nome_equip: str
-    acelerometroX: float
-    acelerometroY: float
-    acelerometroZ: float
-    dt_cria: datetime = Field(default_factory=datetime.now)
-
-    class Config:
-        arbitrary_types_allowed = True
-        json_encoders = {ObjectId: str}
-        json_schema_extra = {
-            "properties": {
-                "_id": {"type": "string", "format": "ObjectId"},
-                "nome_equip": {"type": "string"},
-                "acelerometroX": {"type": "number"},
-                "acelerometroY": {"type": "number"},
-                "acelerometroZ": {"type": "number"},
-                "dt_cria": {"type": "string", "format": "date-time"}
-            },
-            "required": ["nome_equip", "acelerometroX", "acelerometroY", "acelerometroZ"]
-        }
-# Rota para a página inicial
-@app.get("/")
-async def read_root():
-    return {"message": "Bem-vindo à minha API FastAPI!"}
-
-
-
-
-@app.post('/acelerometro/{equip}/{ax}/{ay}/{az}')
-async def salvar_dados_acelerometro(request: Request,equip:str,ax :float,ay:float,az:float):
-    dados_acelerometro = {"nome_equip":equip,
-                         "acelerometroX": ax,
-                         "acelerometroY": ay,
-                         "acelerometroZ": az,
-                         "dt_cria": (datetime.now())
-                          }
-    acelerometro_json = jsonable_encoder(dados_acelerometro)
-    acelerometro_nova= collection.insert_one(acelerometro_json)
-    return JSONResponse(status_code=status.HTTP_201_CREATED, content=acelerometro_nova)
-
-@app.post("/dados_mqtt")
-async def receber_dados_mqtt(dados: dict):
-    # Manipular os dados recebidos
-    print("Dados recebidos via MQTT:", dados)
-    return {"mensagem": "Dados recebidos com sucesso"}
-
-
-
-
-@app.put('/acelerometro',response_model=AcelerometroModel)
-async def salvar_dados_acelerometro_json(request: Request, data: AcelerometroModel):
-    dados_acelerometro = {
-        "nome_equip": data.nome_equip,
-        "acelerometroX": data.acelerometroX,
-        "acelerometroY": data.acelerometroY,
-        "acelerometroZ": data.acelerometroZ,
-        "dt_cria": datetime.now()
-    }
-    acelerometro_json = jsonable_encoder(dados_acelerometro)
-    acelerometro_nova =  collection.insert_one(acelerometro_json)
-    inserted_id = str(acelerometro_nova.inserted_id)
-    return JSONResponse(status_code=status.HTTP_201_CREATED, content={"id": inserted_id})
-
 
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8000)
